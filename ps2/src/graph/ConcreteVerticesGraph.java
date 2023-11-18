@@ -4,83 +4,174 @@
 package graph;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
+//TODO: improve overall performance
 /**
  * An implementation of Graph.
  * 
+ * 
  * <p>PS2 instructions: you MUST use the provided rep.
  */
-public class ConcreteVerticesGraph implements Graph<String> {
-    
-    private final List<Vertex> vertices = new ArrayList<>();
-    
-    // Abstraction function:
-    //   TODO
-    // Representation invariant:
-    //   TODO
-    // Safety from rep exposure:
-    //   TODO
-    
-    // TODO constructor
-    
-    // TODO checkRep
-    
-    @Override public boolean add(String vertex) {
-        throw new RuntimeException("not implemented");
-    }
-    
-    @Override public int set(String source, String target, int weight) {
-        throw new RuntimeException("not implemented");
-    }
-    
-    @Override public boolean remove(String vertex) {
-        throw new RuntimeException("not implemented");
-    }
-    
-    @Override public Set<String> vertices() {
-        throw new RuntimeException("not implemented");
-    }
-    
-    @Override public Map<String, Integer> sources(String target) {
-        throw new RuntimeException("not implemented");
-    }
-    
-    @Override public Map<String, Integer> targets(String source) {
-        throw new RuntimeException("not implemented");
-    }
-    
-    // TODO toString()
-    
-}
-
-/**
- * TODO specification
- * Mutable.
- * This class is internal to the rep of ConcreteVerticesGraph.
- * 
- * <p>PS2 instructions: the specification and implementation of this class is
- * up to you.
- */
-class Vertex {
-    
-    // TODO fields
+public class ConcreteVerticesGraph<L> implements Graph<L> {
+   /**
+    * 
+    * <p>The implementation involves a lot of checking and defensive copies
+    * which is costly in terms of both performance and memory. This is 
+    * because we are storing a mutable type to a list, so methods such
+    * as contains() and get() can't be used to access the vertices. 
+    * It is a requirement that we not add new fields and we stick to the
+    * rep provided. 
+    * I tried using a lookup table without violating the conditions, which
+    * would store the vertices' labels in a list that matches the positions 
+    * of their relative vertices to have constant time access, found that
+    * challenging.
+    * If allowed to alter the rep, I'd use a map:
+    *       Map<String, Vertex>
+    *  this would be performance friendly, constant time access and mutating
+    *  any vertex would not affect the rep.
+    *  
+    */
+    private final List<Vertex<L>> vertices = new ArrayList<>();
     
     // Abstraction function:
-    //   TODO
+    //   represents a directed weighted graph as multiple vertices 
+    //   connecting as source to target pairs with each pair having a
+    //   weight.
+    //   
     // Representation invariant:
-    //   TODO
+    //   only one instance of a vertex can exist in vertices
     // Safety from rep exposure:
-    //   TODO
+    //   vertices is a mutable list, so operation make defensive
+    //   copies and use immutable views to avoid sharing the rep
+    //   A Vertex is a mutable type, operations use defensive copies 
+    //   to avoid sharing the rep
     
-    // TODO constructor
+  
+    public ConcreteVerticesGraph(){
+    }
+    private void checkRep(){        
+        assert vertices().size() == vertices.size();
+    }
+    //helper method
+    /**
+     * Returns the index of a vertex in list of vertices
+     * @param label the label of the vertex being searched
+     * @return the index, i, of the vertex having label such that
+     *         vertices.get(i).getLabel() == label, or -1 if
+     *         no vertex was found
+     */
+    private int indexInVertices(L label){
+        for(int i = 0; i < vertices.size(); i++){
+            if ( vertices.get(i).getLabel().equals(label) ) {
+                return i;
+            }
+        }
+        return -1;
+    }
+    //end of helper method
+    @Override public boolean add(L vertex) {        
+        if ( vertices().contains(vertex) ) {
+            return false;
+        }
+        Vertex<L> vertexObj = new Vertex<>(vertex);    
+        final boolean vertexAdded = vertices.add(vertexObj);
+        checkRep();
+        return vertexAdded;
+    }
     
-    // TODO checkRep
+    @Override public int set(L source, L target, int weight) {
+        assert source != target;
+        assert weight >= 0;
+        
+        final Vertex<L> sourceVertex;
+        final Vertex<L> targetVertex;
+        
+        Set<L> verticeLabels = vertices();
+        if ( verticeLabels.contains(source) ) {
+            int sourceIndex = indexInVertices(source);
+            sourceVertex = vertices.get(sourceIndex);
+        } else {
+            sourceVertex = new Vertex<>(source);
+            vertices.add(sourceVertex);
+        }
+        
+        if ( verticeLabels.contains(target) ) {
+            int targetIndex = indexInVertices(target);
+            targetVertex = vertices.get(targetIndex);
+        } else {
+            targetVertex = new Vertex<>(target);
+            vertices.add(targetVertex);
+        }
+        
+        int sourcePrevWeight = sourceVertex.setTarget(target, weight);
+        int targetPrevWeight = targetVertex.setSource(source, weight);
+        assert sourcePrevWeight == targetPrevWeight;
+        
+        checkRep();
+        return sourcePrevWeight;
+    }
     
-    // TODO methods
-    
-    // TODO toString()
-    
+    @Override public boolean remove(L vertex) {
+        if ( !( vertices().contains(vertex)) ) {
+            return false;
+        }
+        int vertexIndex = indexInVertices(vertex);
+        assert vertexIndex != -1;
+        final Vertex<L> removedVertex = vertices.remove(vertexIndex);
+        assert removedVertex.getLabel() == vertex;
+        
+        for( Vertex<L> v: vertices ) {
+            v.remove(vertex);
+        }
+        return removedVertex != null;
+    }
+    @Override public Set<L> vertices() {
+        return vertices.stream()
+                .map(Vertex::getLabel)
+                .collect(Collectors.toSet());
+    }
+    /** Returns an immutable view of source vertices to a target */
+    @Override public Map<L, Integer> sources(L target) {
+        final int targetIndex = indexInVertices(target);
+        if ( targetIndex < 0 ) {
+            return Collections.emptyMap();
+        }
+        Vertex<L> targetVertex = vertices.get(targetIndex);
+        
+        return Collections.unmodifiableMap(targetVertex.getSources());
+    }
+    /** Returns an immutable view of target vertices from a target */
+    @Override public Map<L, Integer> targets(L source) {
+        final int sourceIndex = indexInVertices(source);
+        if ( sourceIndex < 0 ) {
+            return Collections.emptyMap();
+        }
+        Vertex<L> sourceVertex = vertices.get(sourceIndex);
+        
+        return Collections.unmodifiableMap(sourceVertex.getTargets());
+    }
+    //TODO better toString() as below
+    /**
+     * Returns a string representation of this graph.
+     *  
+     * A graph is made up of connected pairs of vertices, from source
+     * to target. The string rep for ConcreteVerticesGraph contains 
+     * all source vertices and the target vertices they each connect to:
+     *      sourceVertex -> targetVertices(a Map's string rep)
+     *      read as from sourceVertex to targetVertices
+     * 
+     * @return a string representation of this graph
+     */
+    @Override public String toString(){
+        return vertices.stream()
+                .filter(vertex -> vertex.getTargets().size() > 0)
+                .map(vertex -> vertex.getLabel().toString() + " -> " + vertex.getTargets())
+                .collect(Collectors.joining("\n"));
+    }
 }
